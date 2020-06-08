@@ -10,7 +10,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:1.5.0:exec</goal>
             </goals>
             <properties>
-                <exec.args>-classpath %classpath rutantan.tantanreader.Main "C:\Users\cesar\Documents\the-complete-works-of-h-p-lovecraft.pdf"</exec.args>
+                <exec.args>-classpath %classpath rutantan.tantanreader.Main "C:\Users\cesar\Documents\4E_Forgotten_Realms_Players_Guide.pdf"</exec.args>
                 <exec.executable>java</exec.executable>
             </properties>
         </action>
@@ -24,7 +24,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:1.5.0:exec</goal>
             </goals>
             <properties>
-                <exec.args>-agentlib:jdwp=transport=dt_socket,server=n,address=${jpda.address} -classpath %classpath rutantan.tantanreader.Main "C:\Users\cesar\Documents\the-complete-works-of-h-p-lovecraft.pdf"</exec.args>
+                <exec.args>-agentlib:jdwp=transport=dt_socket,server=n,address=${jpda.address} -classpath %classpath rutantan.tantanreader.Main "C:\Users\cesar\Documents\4E_Forgotten_Realms_Players_Guide.pdf"</exec.args>
                 <exec.executable>java</exec.executable>
                 <jpda.listen>true</jpda.listen>
             </properties>
@@ -39,7 +39,7 @@
                 <goal>org.codehaus.mojo:exec-maven-plugin:1.5.0:exec</goal>
             </goals>
             <properties>
-                <exec.args>-classpath %classpath rutantan.tantanreader.Main "C:\Users\cesar\Documents\the-complete-works-of-h-p-lovecraft.pdf"</exec.args>
+                <exec.args>-classpath %classpath rutantan.tantanreader.Main "C:\Users\cesar\Documents\4E_Forgotten_Realms_Players_Guide.pdf"</exec.args>
                 <exec.executable>java</exec.executable>
             </properties>
         </action>
