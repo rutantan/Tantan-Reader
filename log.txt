@@ -1,0 +1,4 @@
+jun. 08, 2020 11:11:25 PM rutantan.tantanreader.Main <init>
+INFORMAÇÕES: Starting program...
+jun. 08, 2020 11:11:26 PM rutantan.tantanreader.Main <init>
+INFORMAÇÕES: Program started.
