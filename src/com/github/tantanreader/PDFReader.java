@@ -3,14 +3,14 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package rutantan.tantanreader;
+package com.github.tantanreader;
 
-import com.formdev.flatlaf.FlatIntelliJLaf;
-import com.formdev.flatlaf.FlatLightLaf;
 import java.awt.Color;
+import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Image;
 import java.awt.Point;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -20,16 +20,21 @@ import java.awt.print.PrinterException;
 import java.awt.print.PrinterJob;
 import java.io.File;
 import java.io.IOException;
+import java.util.Enumeration;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
+import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -51,7 +56,7 @@ import org.apache.pdfbox.rendering.PDFRenderer;
  *
  * @author cesar
  */
-public class Main extends javax.swing.JFrame {
+public class PDFReader extends java.awt.Panel {
 
     PDFRenderer pdfRenderer;
     PDDocument document;
@@ -59,7 +64,8 @@ public class Main extends javax.swing.JFrame {
     BufferedImage image;
     String path;
     JLabel[] pageRenderedImage;
-    float renderSize = 1;
+    float renderSize = 1; //image size
+    int renderRotationAngle = 0; //
     JButton buttons[];
     int currentPage;
     int leftPaneWidth;
@@ -68,43 +74,48 @@ public class Main extends javax.swing.JFrame {
     boolean miniaturesVerticalBarMouseReleased = false, pageVerticalBarMouseReleased = false;
     boolean hasLoadedDocument = false;
     boolean BookMode = false;
+    boolean isCtrlPressed = false;
     ImageIcon whiteIcon;
-    public static final Logger logger = Logger.getLogger(Main.class.getName());
-    private static FileHandler fh = null;
     int[] bookmarksPages;
+    int documentSize;
     boolean isLoadingDocument = false;
+    public static final Logger logger = Logger.getLogger(PDFReader.class.getName());
+    String readMode = ""; //pdf or zip
+    ZipFile zipFile;
+    ZipEntry[] zipEntries;
 
-    public Main(String[] args) throws IOException {
-        fh = new FileHandler("log.txt", false);
+    /**
+     * Creates new form PDFReader
+     *
+     * @throws java.io.IOException
+     */
+    public PDFReader() throws IOException {
+        initComponents();
+
+        FileHandler fh = new FileHandler(System.getProperty("user.home") + File.separator + "log.txt", false);
         fh.setFormatter(new SimpleFormatter());
         logger.addHandler(fh);
         logger.log(Level.INFO, "Starting program...");
-        
-        initComponents();
 
-        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("rutantan/tantanreader/Bundle");
+        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("com/github/tantanreader/bundles/Bundle");
         jTabbedPane1.setTitleAt(0, bundle.getString("Main.tab1.text"));
         jTabbedPane1.setTitleAt(1, bundle.getString("Main.tab2.text"));
 
-        FlatIntelliJLaf.install();
-        try {
-            UIManager.setLookAndFeel(new FlatLightLaf());
-            SwingUtilities.updateComponentTreeUI(Main.this);
-            Main.this.pack();
-        } catch (Exception ex) {
-            logger.log(Level.WARNING, "Failed to initialize LaF");
-        }
-
-        Main.this.setTitle("Tantan Reader");
-        Main.this.setIconImage(new ImageIcon(getClass().getResource("/icon.png")).getImage());
-        Main.this.setVisible(true);
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) jTree1.getModel().getRoot();
+        node.removeAllChildren();
 
         leftPaneWidth = jTabbedPane1.getWidth();
         TogglePanel();
 
+        //set jtabbed pane tabs to fill pane width
+            for (int i = 0; i < 2; i++) {
+                String name = jTabbedPane1.getTitleAt(i);
+                jTabbedPane1.setTitleAt(i, "<html><div style=\"width: " + 51 + "px\">" + name + "</div></html>");
+            }
+
         scrollPanePage.requestFocus();
 
-        scrollPanePage.getViewport().addChangeListener(new Main.ListenAdditionsScrolled());
+        scrollPanePage.getViewport().addChangeListener(new PDFReader.ListenAdditionsScrolled());
         scrollPaneMiniatures.getVerticalScrollBar().addMouseListener(new MouseListener() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -123,7 +134,7 @@ public class Main extends javax.swing.JFrame {
                         miniaturesVerticalScrollBarValue = scrollPaneMiniatures.getVerticalScrollBar().getValue();
                         miniaturesVerticalBarMouseReleased = false;
                         int maxValue = scrollPaneMiniatures.getVerticalScrollBar().getMaximum();
-                        int pageSelected = (miniaturesVerticalScrollBarValue * document.getNumberOfPages()) / maxValue;
+                        int pageSelected = (miniaturesVerticalScrollBarValue * documentSize) / maxValue;
                         setMiniatures(pageSelected + 2);
                     }
                 } catch (Exception ex) {
@@ -170,6 +181,7 @@ public class Main extends javax.swing.JFrame {
             }
         });
         jTree1.addMouseListener(new MouseAdapter() {
+            @Override
             public void mouseClicked(MouseEvent me) {
                 TreePath tp = jTree1.getPathForLocation(me.getX(), me.getY());
                 if (tp != null) {
@@ -196,14 +208,6 @@ public class Main extends javax.swing.JFrame {
 
         logger.log(Level.INFO, "Program started.");
 
-        if (args.length > 0) {
-            File f = new File(args[0]);
-            if (f.isFile()) {
-                if (f.getAbsolutePath().endsWith(".pdf")) {
-                    loadPDF(f.getPath());
-                }
-            }
-        }
     }
 
     public class ListenAdditionsScrolled implements ChangeListener {
@@ -213,27 +217,45 @@ public class Main extends javax.swing.JFrame {
         }
     }
 
-    private void loadPDF(String Path) {
-        logger.log(Level.INFO, "Loading file " + Path);
+    public void loadFile(String Path) {
+        logger.log(Level.INFO, "Loading file {0}", Path);
         isLoadingDocument = true;
         File file = new File(Path);
         BookMode = tbBookMode.isSelected();
         panel.removeAll();
         try {
             scrollPanePage.getViewport().setViewPosition(new Point(0, 0));
-            document = PDDocument.load(file);
-            pdfRenderer = new PDFRenderer(document);
-            lblLastPage.setText(String.valueOf(document.getNumberOfPages()));
+            if (readMode.equals("pdf")) {
+                document = PDDocument.load(file);
+                pdfRenderer = new PDFRenderer(document);
+                documentSize = document.getNumberOfPages();
+            } else if (readMode.equals("zip")) {
+                try {
+                    zipFile = new ZipFile(Path);
+                    Enumeration<? extends ZipEntry> entries = zipFile.entries();
+                    zipEntries = new ZipEntry[zipFile.size()];
+                    int i = 0;
+                    while (entries.hasMoreElements()) {
+                        zipEntries[i] = entries.nextElement();
+                        i++;
+                    }
+                    documentSize = zipFile.size();
+                } catch (IOException ex) {
+                    Logger.getLogger(PDFReader.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+            lblLastPage.setText(String.valueOf(documentSize));
 
             if (BookMode == false) {
                 setupPageViewGrid(0);
             } else {
-                if (document.getNumberOfPages() > 1) {
-                    setupPageViewGrid(0, 1);
+                if (documentSize > 1) {
+                    System.out.println("loadfile");
+                    setupPageViewGrid(-1, 0);
                 } else {
                     BookMode = false;
                     tbBookMode.setSelected(false);
-                    loadPDF(Path);
+                    loadFile(Path);
                 }
             }
             setMiniaturesGrid();
@@ -241,78 +263,81 @@ public class Main extends javax.swing.JFrame {
             setupBookmarks();
             hasLoadedDocument = true;
             isLoadingDocument = false;
-            logger.log(Level.INFO, "File loaded ");
-        } catch (Exception ex) {
+            logger.log(Level.INFO, "File loaded");
+        } catch (IOException ex) {
             logger.log(Level.SEVERE, "Load PDF error: ", ex);
         }
 
     }
 
     private void setupBookmarks() {
-        PDDocumentOutline outline = document.getDocumentCatalog().getDocumentOutline();
-        String indentation = "";
-        DefaultMutableTreeNode root = (DefaultMutableTreeNode) jTree1.getModel().getRoot();
-        root.removeAllChildren();
-        DefaultMutableTreeNode node = null;
-        bookmarksPages = new int[1];
-        int count = 0;
-        try {
-            if (outline != null) {
-                PDOutlineItem current = outline.getFirstChild();
-                while (current != null) {
-                    PDDestination destination = current.getDestination();
-                    if (current.getAction() instanceof PDActionGoTo) {
-                        PDActionGoTo gta = (PDActionGoTo) current.getAction();
-                        if (gta.getDestination() instanceof PDPageDestination) {
-                            count++;
-                        } else if (gta.getDestination() instanceof PDNamedDestination) {
-                            PDPageDestination pd = document.getDocumentCatalog().findNamedDestinationPage((PDNamedDestination) gta.getDestination());
-                            if (pd != null) {
+        if (readMode.equals("pdf")) {
+            PDDocumentOutline outline = document.getDocumentCatalog().getDocumentOutline();
+            String indentation = "";
+            DefaultMutableTreeNode root = (DefaultMutableTreeNode) jTree1.getModel().getRoot();
+            root.removeAllChildren();
+            DefaultMutableTreeNode node = null;
+            bookmarksPages = new int[1];
+            int count = 0;
+            try {
+                if (outline != null) {
+                    PDOutlineItem current = outline.getFirstChild();
+                    while (current != null) {
+                        PDDestination destination = current.getDestination();
+                        if (current.getAction() instanceof PDActionGoTo) {
+                            PDActionGoTo gta = (PDActionGoTo) current.getAction();
+                            if (gta.getDestination() instanceof PDPageDestination) {
                                 count++;
+                            } else if (gta.getDestination() instanceof PDNamedDestination) {
+                                PDPageDestination pd = document.getDocumentCatalog().findNamedDestinationPage((PDNamedDestination) gta.getDestination());
+                                if (pd != null) {
+                                    count++;
+                                }
                             }
                         }
-                    }
 
-                    current = current.getNextSibling();
-                }
-                current = outline.getFirstChild();
-                bookmarksPages = new int[count];
-                int i = 0;
-                while (current != null) {
-                    PDDestination destination = current.getDestination();
-                    if (current.getAction() instanceof PDActionGoTo) {
-                        PDActionGoTo gta = (PDActionGoTo) current.getAction();
-                        if (gta.getDestination() instanceof PDPageDestination) {
-                            PDPageDestination pd = (PDPageDestination) gta.getDestination();
-                            bookmarksPages[i] = pd.retrievePageNumber();
-                            i++;
-                            node = new DefaultMutableTreeNode(current.getTitle());
-                            root.add(node);
-                        } else if (gta.getDestination() instanceof PDNamedDestination) {
-                            PDPageDestination pd = document.getDocumentCatalog().findNamedDestinationPage((PDNamedDestination) gta.getDestination());
-                            if (pd != null) {
+                        current = current.getNextSibling();
+                    }
+                    current = outline.getFirstChild();
+                    bookmarksPages = new int[count];
+                    int i = 0;
+                    while (current != null) {
+                        PDDestination destination = current.getDestination();
+                        if (current.getAction() instanceof PDActionGoTo) {
+                            PDActionGoTo gta = (PDActionGoTo) current.getAction();
+                            if (gta.getDestination() instanceof PDPageDestination) {
+                                PDPageDestination pd = (PDPageDestination) gta.getDestination();
                                 bookmarksPages[i] = pd.retrievePageNumber();
                                 i++;
                                 node = new DefaultMutableTreeNode(current.getTitle());
                                 root.add(node);
+                            } else if (gta.getDestination() instanceof PDNamedDestination) {
+                                PDPageDestination pd = document.getDocumentCatalog().findNamedDestinationPage((PDNamedDestination) gta.getDestination());
+                                if (pd != null) {
+                                    bookmarksPages[i] = pd.retrievePageNumber();
+                                    i++;
+                                    node = new DefaultMutableTreeNode(current.getTitle());
+                                    root.add(node);
+                                }
                             }
                         }
+
+                        current = current.getNextSibling();
                     }
-
-                    current = current.getNextSibling();
                 }
+                DefaultTreeModel model = (DefaultTreeModel) jTree1.getModel();
+                jTree1.setCellRenderer(
+                        new DefaultTreeCellRenderer() {
+                    @Override
+                    public Color getTextNonSelectionColor() {
+                        return new Color(240, 240, 240);
+                    }
+                });
+                model.reload();
+
+            } catch (IOException ex) {
+                logger.log(Level.SEVERE, null, ex);
             }
-            DefaultTreeModel model = (DefaultTreeModel) jTree1.getModel();
-            jTree1.setCellRenderer(
-                    new DefaultTreeCellRenderer() {
-                public Color getTextNonSelectionColor() {
-                    return new Color(240, 240, 240);
-                }
-            });
-            model.reload();
-
-        } catch (IOException ex) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 
@@ -321,7 +346,22 @@ public class Main extends javax.swing.JFrame {
             panel.removeAll();
             GridBagLayout grid = new GridBagLayout();
             panel.setLayout(grid);
-            image = pdfRenderer.renderImage(renderImage, renderSize);
+            if (readMode.equals("pdf")) {
+                image = pdfRenderer.renderImage(renderImage, renderSize);
+            } else if (readMode.equals("zip")) {
+                image = ImageIO.read(zipFile.getInputStream(zipEntries[0]));
+                Image im = image.getScaledInstance((int) ((int) image.getWidth() * renderSize), (int) ((int) image.getHeight() * renderSize), Image.SCALE_DEFAULT);
+                image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                Graphics bg = image.getGraphics();
+                bg.drawImage(im, 0, 0, null);
+                bg.dispose();
+            }
+            if (tbNightMode.isSelected()) {
+                image = invertColors(image);
+            }
+            if (renderRotationAngle != 0) {
+                image = rotateImage(image, renderRotationAngle);
+            }
             pageRenderedImage = new JLabel[1];
             pageRenderedImage[0] = new JLabel();
             pageRenderedImage[0].setText("");
@@ -332,7 +372,7 @@ public class Main extends javax.swing.JFrame {
             panel.add(pageRenderedImage[0]);
             setCurrentPage(renderImage);
         } catch (IOException ex) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
+            logger.log(Level.SEVERE, null, ex);
         }
     }
 
@@ -358,43 +398,73 @@ public class Main extends javax.swing.JFrame {
 
             pageRenderedImage[0].setHorizontalAlignment(javax.swing.SwingConstants.RIGHT);
             pageRenderedImage[1].setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
-            setCurrentPage(renderImage1);
+            if (renderImage1 < 0) {
+                System.out.println("renderimage");
+                setCurrentPage(0);
+            } else {
+                setCurrentPage(renderImage1);
+            }
         } catch (Exception ex) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
+            logger.log(Level.SEVERE, null, ex);
         }
     }
 
     private void loadPage(int page) {
         try {
-            if (page >= 0 && page < document.getNumberOfPages()) {
-                image = pdfRenderer.renderImage(page, renderSize);
+            if (page >= 0 && page < documentSize) {
+                if (readMode.equals("pdf")) {
+                    image = pdfRenderer.renderImage(page, renderSize);
+                } else if (readMode.equals("zip")) {
+                    image = ImageIO.read(zipFile.getInputStream(zipEntries[page]));
+                    Image im = image.getScaledInstance((int) ((int) image.getWidth() * renderSize), (int) ((int) image.getHeight() * renderSize), Image.SCALE_DEFAULT);
+                    image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                    Graphics bg = image.getGraphics();
+                    bg.drawImage(im, 0, 0, null);
+                    bg.dispose();
+                }
+
                 if (tbNightMode.isSelected()) {
                     image = invertColors(image);
                 }
-                lblLastPage.setText(String.valueOf(document.getNumberOfPages()));
+                if (renderRotationAngle != 0) {
+                    image = rotateImage(image, renderRotationAngle);
+                }
+                lblLastPage.setText(String.valueOf(documentSize));
                 ImageIcon icon = new ImageIcon(image);
                 pageRenderedImage[0].setIcon(icon);
                 setCurrentPage(page);
                 setMiniatures(currentPage);
                 updateMiniaturesVerticalScrollBar();
                 scrollPanePage.getVerticalScrollBar().setValue(0);
+                scrollPanePage.requestFocus();
             }
         } catch (IOException ex) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
+            logger.log(Level.SEVERE, null, ex);
         }
     }
 
     private void loadPage(int page, int page1) {
-        System.out.println("page: " + page + " page1: " + page1);
         try {
             ImageIcon icon;
-            final int lastPage = document.getNumberOfPages() - 1;
+            final int lastPage = documentSize - 1;
             if (page == lastPage) {
-                image = pdfRenderer.renderImage(page, renderSize);
+                if (readMode.equals("pdf")) {
+                    image = pdfRenderer.renderImage(page, renderSize);
+                } else if (readMode.equals("zip")) {
+                    image = ImageIO.read(zipFile.getInputStream(zipEntries[page]));
+                    Image im = image.getScaledInstance((int) ((int) image.getWidth() * renderSize), (int) ((int) image.getHeight() * renderSize), Image.SCALE_DEFAULT);
+                    image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                    Graphics bg = image.getGraphics();
+                    bg.drawImage(im, 0, 0, null);
+                    bg.dispose();
+                }
                 if (tbNightMode.isSelected()) {
                     image = invertColors(image);
                 }
-                lblLastPage.setText(String.valueOf(document.getNumberOfPages()));
+                if (renderRotationAngle != 0) {
+                    image = rotateImage(image, renderRotationAngle);
+                }
+                lblLastPage.setText(String.valueOf(documentSize));
                 icon = new ImageIcon(image);
                 pageRenderedImage[0].setIcon(icon);
                 pageRenderedImage[1].setIcon(null);
@@ -407,12 +477,24 @@ public class Main extends javax.swing.JFrame {
                         pageRenderedImage[0].setIcon(null);
                         break;
                     default:
-                        if (page > 0 && page < document.getNumberOfPages()) {
-                            image = pdfRenderer.renderImage(page, renderSize);
+                        if (page > 0 && page < documentSize) {
+                            if (readMode.equals("pdf")) {
+                                image = pdfRenderer.renderImage(page, renderSize);
+                            } else if (readMode.equals("zip")) {
+                                image = ImageIO.read(zipFile.getInputStream(zipEntries[page]));
+                                Image im = image.getScaledInstance((int) ((int) image.getWidth() * renderSize), (int) ((int) image.getHeight() * renderSize), Image.SCALE_DEFAULT);
+                                image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                                Graphics bg = image.getGraphics();
+                                bg.drawImage(im, 0, 0, null);
+                                bg.dispose();
+                            }
                             if (tbNightMode.isSelected()) {
                                 image = invertColors(image);
                             }
-                            lblLastPage.setText(String.valueOf(document.getNumberOfPages()));
+                            if (renderRotationAngle != 0) {
+                                image = rotateImage(image, renderRotationAngle);
+                            }
+                            lblLastPage.setText(String.valueOf(documentSize));
                             icon = new ImageIcon(image);
                             pageRenderedImage[0].setIcon(icon);
                         }
@@ -424,20 +506,44 @@ public class Main extends javax.swing.JFrame {
                     pageRenderedImage[1].setIcon(null);
                     break;
                 case -5:
-                    image = pdfRenderer.renderImage(page, renderSize);
+                    if (readMode.equals("pdf")) {
+                        image = pdfRenderer.renderImage(page, renderSize);
+                    } else if (readMode.equals("zip")) {
+                        image = ImageIO.read(zipFile.getInputStream(zipEntries[page]));
+                        Image im = image.getScaledInstance((int) ((int) image.getWidth() * renderSize), (int) ((int) image.getHeight() * renderSize), Image.SCALE_DEFAULT);
+                        image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                        Graphics bg = image.getGraphics();
+                        bg.drawImage(im, 0, 0, null);
+                        bg.dispose();
+                    }
                     if (tbNightMode.isSelected()) {
                         image = invertColors(image);
                     }
-                    lblLastPage.setText(String.valueOf(document.getNumberOfPages()));
+                    if (renderRotationAngle != 0) {
+                        image = rotateImage(image, renderRotationAngle);
+                    }
+                    lblLastPage.setText(String.valueOf(documentSize));
                     icon = new ImageIcon(image);
                     pageRenderedImage[1].setIcon(icon);
                 default:
-                    if (page1 >= 0 && page1 < document.getNumberOfPages()) {
-                        image = pdfRenderer.renderImage(page1, renderSize);
+                    if (page1 >= 0 && page1 < documentSize) {
+                        if (readMode.equals("pdf")) {
+                            image = pdfRenderer.renderImage(page1, renderSize);
+                        } else if (readMode.equals("zip")) {
+                            image = ImageIO.read(zipFile.getInputStream(zipEntries[page1]));
+                            Image im = image.getScaledInstance((int) ((int) image.getWidth() * renderSize), (int) ((int) image.getHeight() * renderSize), Image.SCALE_DEFAULT);
+                            image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                            Graphics bg = image.getGraphics();
+                            bg.drawImage(im, 0, 0, null);
+                            bg.dispose();
+                        }
                         if (tbNightMode.isSelected()) {
                             image = invertColors(image);
                         }
-                        lblLastPage.setText(String.valueOf(document.getNumberOfPages()));
+                        if (renderRotationAngle != 0) {
+                            image = rotateImage(image, renderRotationAngle);
+                        }
+                        lblLastPage.setText(String.valueOf(documentSize));
                         icon = new ImageIcon(image);
                         pageRenderedImage[1].setIcon(icon);
                     }
@@ -451,8 +557,9 @@ public class Main extends javax.swing.JFrame {
             setMiniatures(currentPage);
             scrollPanePage.getVerticalScrollBar().setValue(0);
             updateMiniaturesVerticalScrollBar();
+            scrollPanePage.requestFocus();
         } catch (IOException ex) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
+            logger.log(Level.SEVERE, null, ex);
         }
     }
 
@@ -480,15 +587,20 @@ public class Main extends javax.swing.JFrame {
 
     private void updateMiniaturesVerticalScrollBar() {
         int maxSize = scrollPaneMiniatures.getVerticalScrollBar().getMaximum();
-        scrollPaneMiniatures.getVerticalScrollBar().setValue((maxSize / document.getNumberOfPages()) * (currentPage - 1));
+        scrollPaneMiniatures.getVerticalScrollBar().setValue((maxSize / documentSize) * (currentPage - 1));
     }
 
     private void setMiniaturesGrid() {
         panelMiniatures.removeAll();
-        panelMiniatures.setLayout(new GridLayout(document.getNumberOfPages(), 1, 0, 10));
+        if (readMode.equals("pdf")) {
+            panelMiniatures.setLayout(new GridLayout(documentSize, 1, 0, 10));
+        } else if (readMode.equals("zip")) {
+            panelMiniatures.setLayout(new GridLayout(zipFile.size(), 1, 0, 10));
+        }
+
         if (hasLoadedDocument) {
-            for (int i = 0; i < buttons.length; i++) {
-                buttons[i].removeAll();
+            for (JButton button : buttons) {
+                button.removeAll();
             }
             hasLoadedDocument = false;
         }
@@ -496,8 +608,13 @@ public class Main extends javax.swing.JFrame {
 
     private void setMiniatures(int page) {
         if (!hasLoadedDocument) {
-            buttons = new JButton[document.getNumberOfPages()];
-            for (int i = 0; i < document.getNumberOfPages(); i++) {
+            if (readMode.equals("pdf")) {
+                buttons = new JButton[documentSize];
+            } else if (readMode.equals("zip")) {
+                buttons = new JButton[zipFile.size()];
+            }
+
+            for (int i = 0; i < buttons.length; i++) {
                 buttons[i] = new JButton();
                 buttons[i].setVisible(true);
                 buttons[i].setBorderPainted(true);
@@ -531,11 +648,21 @@ public class Main extends javax.swing.JFrame {
         }
         int pageLoadMin = page - 3;
         int pageLoadMax = page + 3;
-        for (int i = 0; i < document.getNumberOfPages(); i++) {
+        for (int i = 0; i < buttons.length; i++) {
             try {
                 if ((i >= pageLoadMin) && (i <= pageLoadMax)) {
                     if (isLoadingDocument) {
-                        image = pdfRenderer.renderImage(i, (float) 0.20);
+                        if (readMode.equals("pdf")) {
+                            image = pdfRenderer.renderImage(i, (float) 0.20);
+                        } else if (readMode.equals("zip")) {
+                            image = ImageIO.read(zipFile.getInputStream(zipEntries[i]));
+                            Image im = image.getScaledInstance(122, 158, Image.SCALE_DEFAULT);
+                            image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                            Graphics bg = image.getGraphics();
+                            bg.drawImage(im, 0, 0, null);
+                            bg.dispose();
+                        }
+
                         if (tbNightMode.isSelected()) {
                             image = invertColors(image);
                         }
@@ -545,7 +672,18 @@ public class Main extends javax.swing.JFrame {
                         miniatureWidth = icon.getIconWidth();
                     } else {
                         if (buttons[i].getIcon() == whiteIcon) {
-                            image = pdfRenderer.renderImage(i, (float) 0.20);
+                            if (readMode.equals("pdf")) {
+                                image = pdfRenderer.renderImage(i, (float) 0.20);
+
+                            } else if (readMode.equals("zip")) {
+                                image = ImageIO.read(zipFile.getInputStream(zipEntries[i]));
+                                Image im = image.getScaledInstance(122, 158, Image.SCALE_DEFAULT);
+                                image = new BufferedImage(im.getWidth(null), im.getHeight(null), BufferedImage.TYPE_INT_RGB);
+                                Graphics bg = image.getGraphics();
+                                bg.drawImage(im, 0, 0, null);
+                                bg.dispose();
+                            }
+
                             if (tbNightMode.isSelected()) {
                                 image = invertColors(image);
                             }
@@ -562,6 +700,7 @@ public class Main extends javax.swing.JFrame {
                             Graphics2D graphics = image.createGraphics();
                             graphics.setPaint(new Color(255, 255, 255));
                             graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+                            graphics.dispose();
                             whiteIcon = new ImageIcon(image);
                         }
                         buttons[i].setIcon(whiteIcon);
@@ -571,7 +710,7 @@ public class Main extends javax.swing.JFrame {
                 }
 
             } catch (IOException ex) {
-                Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
+                logger.log(Level.SEVERE, null, ex);
             }
 
         }
@@ -582,34 +721,41 @@ public class Main extends javax.swing.JFrame {
 
     private void setCurrentPage(int page) {
         currentPage = page + 1;
-        txtPage.setText(String.valueOf(page + 1));
+        if (currentPage <= 0) {
+            currentPage = 1;
+        }
+        txtPage.setText(String.valueOf(currentPage));
     }
 
     private void BookMode() {
         renderSize = (float) 0.75;
         try {
-            if (BookMode != tbBookMode.isSelected() && document.getNumberOfPages() > 1) {
+            if (BookMode != tbBookMode.isSelected() && documentSize > 1) {
                 if (tbBookMode.isSelected() == true) {
                     if (currentPage - 1 == 0) {
                         setupPageViewGrid(-1, currentPage - 1);
+                        loadPage(-1, currentPage - 1);
                     } else {
                         if (currentPage % 2 == 0) {
                             // if page number is even
                             setupPageViewGrid(currentPage - 1, currentPage);
+                            loadPage(currentPage - 1, currentPage);
                         } else {
                             // if page number is odd
                             setupPageViewGrid(currentPage - 2, currentPage - 1);
+                            loadPage(currentPage - 2, currentPage - 1);
                         }
                     }
                 } else {
                     setupPageViewGrid(currentPage - 1);
+                    loadPage(currentPage - 1);
                 }
             }
             BookMode = tbBookMode.isSelected();
             scrollPanePage.getVerticalScrollBar().setValue(scrollPanePage.getVerticalScrollBar().getValue() + 30);
             scrollPanePage.getVerticalScrollBar().setValue(scrollPanePage.getVerticalScrollBar().getValue() - 30);
         } catch (Exception e) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, "Book mode error: ", e);
+            logger.log(Level.SEVERE, "Book mode error: ", e);
         }
     }
 
@@ -617,12 +763,12 @@ public class Main extends javax.swing.JFrame {
         if (tbTogglePanel.isSelected()) {
             jTabbedPane1.setVisible(true);
             scrollPanePage.setSize((scrollPanePage.getWidth() - leftPaneWidth), scrollPanePage.getHeight());
-            jPanel1.updateUI();
+            panelBackground.updateUI();
 
         } else {
             jTabbedPane1.setVisible(false);
             scrollPanePage.setSize((scrollPanePage.getWidth() + leftPaneWidth), scrollPanePage.getHeight());
-            jPanel1.updateUI();
+            panelBackground.updateUI();
         }
     }
 
@@ -632,7 +778,11 @@ public class Main extends javax.swing.JFrame {
             if (BookMode == false) {
                 loadPage(currentPage - 1);
             } else {
-                loadPage(currentPage - 1, currentPage);
+                if (currentPage == 1) {
+                    loadPage(- 1, 0);
+                } else {
+                    loadPage(currentPage - 1, currentPage);
+                }
             }
         }
     }
@@ -643,37 +793,39 @@ public class Main extends javax.swing.JFrame {
             if (BookMode == false) {
                 loadPage(currentPage - 1);
             } else {
-                loadPage(currentPage - 1, currentPage);
+                if (currentPage == 1) {
+                    loadPage(- 1, 0);
+                } else {
+                    loadPage(currentPage - 1, currentPage);
+                }
             }
         }
     }
 
-    private void zoom(double zoom) {
-        renderSize = (float) zoom;
-        if (BookMode == false) {
-            loadPage(currentPage - 1);
-        } else {
-            loadPage(currentPage - 1, currentPage);
-        }
-    }
-
     private void nextPage() {
+
         if (hasLoadedDocument) {
             if (BookMode == false) {
-                if (currentPage + 1 <= document.getNumberOfPages()) {
+                if (currentPage + 1 <= documentSize) {
                     loadPage(currentPage);
                 }
             } else {
-                if (currentPage + 2 == document.getNumberOfPages()) {
-                    loadPage(currentPage + 2, -1);
+                if (currentPage + 2 == documentSize) {
+                    if (documentSize == 3) {
+                        loadPage(currentPage, currentPage + 1);
+                    } else {
+                        loadPage(currentPage + 2, -1);
+                    }
                 } else if (currentPage % 2 != 0) {
                     // is odd
-                    if (currentPage + 1 < document.getNumberOfPages()) {
+                    if (currentPage + 1 < documentSize) {
+                        System.out.println("hey");
                         loadPage(currentPage, currentPage + 1);
                     }
                 } else {
                     // is even
-                    if (currentPage + 2 < document.getNumberOfPages()) {
+                    if (currentPage + 2 < documentSize) {
+                        System.out.println("ho");
                         loadPage(currentPage + 1, currentPage + 2);
                     }
                 }
@@ -681,25 +833,161 @@ public class Main extends javax.swing.JFrame {
         }
     }
 
+    private void previousPage() {
+        if (hasLoadedDocument) {
+            if (BookMode == false) {
+                if (currentPage - 2 >= 0) {
+                    loadPage(currentPage - 2);
+                }
+            } else {
+                if (currentPage == 2) {
+                    //  show first page on right side
+                    loadPage(-1, currentPage - 2);
+                } else if (currentPage % 2 != 0) {
+                    if (currentPage > 2) {
+                        loadPage(currentPage - 3, currentPage - 2);
+                    } else {
+                        loadPage(currentPage - 4, currentPage - 3);
+                    }
+                } else {
+                    if (currentPage > 2) {
+                        loadPage(currentPage - 3, currentPage - 2);
+                    } else {
+                        loadPage(currentPage - 4, currentPage - 3);
+                    }
+                }
+            }
+        }
+    }
+
+    private void firstPage() {
+        if (hasLoadedDocument) {
+            if (BookMode == false) {
+                loadPage(0);
+            } else {
+                loadPage(-1, 0);
+            }
+        }
+    }
+
+    private void lastPage() {
+        if (hasLoadedDocument) {
+            if (BookMode == false) {
+                loadPage(documentSize - 1);
+            } else {
+                if ((documentSize) % 2 == 0) {
+                    //if last page is even
+                    loadPage(documentSize - 1, -1);
+                } else {
+                    // if last page is odd
+                    loadPage(documentSize - 2, documentSize - 1);
+                }
+            }
+        }
+    }
+
+    private void printDocument() {
+        if (hasLoadedDocument) {
+            PrinterJob job = PrinterJob.getPrinterJob();
+            job.setPageable(new PDFPageable(document));
+
+            if (job.printDialog()) {
+                try {
+                    job.print();
+                } catch (PrinterException ex) {
+                    logger.log(Level.SEVERE, "Print error: ", ex);
+                }
+            }
+        }
+    }
+
+    private void openDocument() {
+        final JFileChooser openFile = new JFileChooser();
+        openFile.setMultiSelectionEnabled(false);
+        int actionDialog = openFile.showOpenDialog(this);
+        if (actionDialog == JFileChooser.APPROVE_OPTION) {
+            String alfa = openFile.getSelectedFile().getAbsolutePath();
+            Object o = SwingUtilities.windowForComponent(this);
+            if (o != null && o instanceof JFrame) {
+                JFrame frame = (JFrame) o;
+                frame.setTitle("Tantan Reader - " + openFile.getSelectedFile().getName());
+            }
+            if (alfa.endsWith(".pdf")) {
+                if (hasLoadedDocument) {
+                    try {
+                        document.close();
+                    } catch (IOException ex) {
+                        logger.log(Level.WARNING, "Error closing document: " + ex.toString(), ex);
+                    }
+                }
+                readMode = "pdf";
+                loadFile(alfa);
+            } else if (alfa.endsWith(".cbz") || alfa.endsWith(".zip")) {
+                readMode = "zip";
+                loadFile(alfa);
+            } else {
+                java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("com/github/tantanreader/bundles/Bundle");
+                JOptionPane.showMessageDialog(PDFReader.this, bundle.getString("Main.Message.FileNotSupported"));
+            }
+        }
+    }
+
+    public void closeDocument() {
+        try {
+            document.close();
+        } catch (IOException ex) {
+            logger.log(Level.SEVERE, null, ex);
+        }
+    }
+
+    private BufferedImage rotateImage(BufferedImage imageToRotate, int angleToRotate) {
+        System.out.println("rotate");
+
+        int width = imageToRotate.getWidth();
+        int height = imageToRotate.getHeight();
+        double angle = 0;
+        BufferedImage dest = new BufferedImage(height, width, imageToRotate.getType());
+        Graphics2D graphics2D = dest.createGraphics();
+        switch (angleToRotate) {
+            case 90:
+                angle = Math.PI / 2;
+
+                graphics2D.translate(90, 90);
+                graphics2D.rotate(angle, height / 2, width / 2);
+                graphics2D.drawRenderedImage(imageToRotate, null);
+                break;
+            case 180:
+                angle = Math.PI;
+
+                graphics2D.translate(-90, -90);
+                graphics2D.rotate(angle, height / 2, width / 2);
+                graphics2D.drawRenderedImage(imageToRotate, null);
+                break;
+            case 270:
+                angle = (3 * Math.PI) / 2;
+                break;
+        }
+
+        return dest;
+    }
+
     /**
      * This method is called from within the constructor to initialize the form.
      * WARNING: Do NOT modify this code. The content of this method is always
      * regenerated by the Form Editor.
      */
-    @SuppressWarnings("unchecked")
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
-        java.awt.GridBagConstraints gridBagConstraints;
 
-        jPanel1 = new javax.swing.JPanel();
+        panelBackground = new javax.swing.JPanel();
         toolbarPanel = new javax.swing.JPanel();
         jToolBar2 = new javax.swing.JToolBar();
         btnOpen = new javax.swing.JButton();
         btnPrint = new javax.swing.JButton();
-        jToolBar3 = new javax.swing.JToolBar();
-        tbBookMode = new javax.swing.JToggleButton();
         tbTogglePanel = new javax.swing.JToggleButton();
         tbNightMode = new javax.swing.JToggleButton();
+        tbBookMode = new javax.swing.JToggleButton();
+        tbFullscreen = new javax.swing.JToggleButton();
         btnZoomOut = new javax.swing.JButton();
         btnZoomIn = new javax.swing.JButton();
         jToolBar1 = new javax.swing.JToolBar();
@@ -720,22 +1008,21 @@ public class Main extends javax.swing.JFrame {
         jScrollPane1 = new javax.swing.JScrollPane();
         jTree1 = new javax.swing.JTree();
 
-        setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
-        setBackground(new java.awt.Color(51, 51, 51));
-        setMinimumSize(new java.awt.Dimension(660, 500));
-        setPreferredSize(new java.awt.Dimension(800, 500));
+        setLayout(new java.awt.BorderLayout());
+
+        panelBackground.setBackground(new java.awt.Color(51, 51, 51));
 
         toolbarPanel.setBackground(new java.awt.Color(51, 51, 51));
-        toolbarPanel.setLayout(new java.awt.GridBagLayout());
 
+        jToolBar2.setBackground(new java.awt.Color(51, 51, 51));
         jToolBar2.setBorder(null);
         jToolBar2.setFloatable(false);
         jToolBar2.setRollover(true);
         jToolBar2.setBorderPainted(false);
 
         btnOpen.setBackground(new java.awt.Color(51, 51, 51));
-        btnOpen.setIcon(new javax.swing.ImageIcon(getClass().getResource("/open20.png"))); // NOI18N
-        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("rutantan/tantanreader/Bundle"); // NOI18N
+        btnOpen.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/open.png"))); // NOI18N
+        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("com/github/tantanreader/bundles/Bundle"); // NOI18N
         btnOpen.setToolTipText(bundle.getString("Main.btnOpen.tooltip")); // NOI18N
         btnOpen.setFocusable(false);
         btnOpen.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -748,7 +1035,7 @@ public class Main extends javax.swing.JFrame {
         jToolBar2.add(btnOpen);
 
         btnPrint.setBackground(new java.awt.Color(51, 51, 51));
-        btnPrint.setIcon(new javax.swing.ImageIcon(getClass().getResource("/print20.png"))); // NOI18N
+        btnPrint.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/print.png"))); // NOI18N
         btnPrint.setToolTipText(bundle.getString("Main.btnPrint.tooltip")); // NOI18N
         btnPrint.setFocusable(false);
         btnPrint.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -760,32 +1047,8 @@ public class Main extends javax.swing.JFrame {
         });
         jToolBar2.add(btnPrint);
 
-        gridBagConstraints = new java.awt.GridBagConstraints();
-        gridBagConstraints.gridx = 0;
-        gridBagConstraints.gridy = 0;
-        gridBagConstraints.weightx = 0.1;
-        toolbarPanel.add(jToolBar2, gridBagConstraints);
-
-        jToolBar3.setBorder(null);
-        jToolBar3.setFloatable(false);
-        jToolBar3.setRollover(true);
-        jToolBar3.setBorderPainted(false);
-
-        tbBookMode.setBackground(new java.awt.Color(51, 51, 51));
-        tbBookMode.setIcon(new javax.swing.ImageIcon(getClass().getResource("/multipage20.png"))); // NOI18N
-        tbBookMode.setToolTipText(bundle.getString("Main.btnBookMode.tooltip")); // NOI18N
-        tbBookMode.setFocusable(false);
-        tbBookMode.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
-        tbBookMode.setVerticalTextPosition(javax.swing.SwingConstants.BOTTOM);
-        tbBookMode.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                tbBookModeActionPerformed(evt);
-            }
-        });
-        jToolBar3.add(tbBookMode);
-
         tbTogglePanel.setBackground(new java.awt.Color(51, 51, 51));
-        tbTogglePanel.setIcon(new javax.swing.ImageIcon(getClass().getResource("/panel20.png"))); // NOI18N
+        tbTogglePanel.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/panel.png"))); // NOI18N
         tbTogglePanel.setSelected(true);
         tbTogglePanel.setToolTipText(bundle.getString("Main.btPanel.tooltip")); // NOI18N
         tbTogglePanel.setFocusable(false);
@@ -796,10 +1059,10 @@ public class Main extends javax.swing.JFrame {
                 tbTogglePanelActionPerformed(evt);
             }
         });
-        jToolBar3.add(tbTogglePanel);
+        jToolBar2.add(tbTogglePanel);
 
         tbNightMode.setBackground(new java.awt.Color(51, 51, 51));
-        tbNightMode.setIcon(new javax.swing.ImageIcon(getClass().getResource("/nightmode20.png"))); // NOI18N
+        tbNightMode.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/nightmode.png"))); // NOI18N
         tbNightMode.setToolTipText(bundle.getString("Main.tbNightMode.toolTipText")); // NOI18N
         tbNightMode.setFocusable(false);
         tbNightMode.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -809,11 +1072,36 @@ public class Main extends javax.swing.JFrame {
                 tbNightModeActionPerformed(evt);
             }
         });
-        jToolBar3.add(tbNightMode);
+        jToolBar2.add(tbNightMode);
+
+        tbBookMode.setBackground(new java.awt.Color(51, 51, 51));
+        tbBookMode.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/bookmode.png"))); // NOI18N
+        tbBookMode.setToolTipText(bundle.getString("Main.btnBookMode.tooltip")); // NOI18N
+        tbBookMode.setFocusable(false);
+        tbBookMode.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
+        tbBookMode.setVerticalTextPosition(javax.swing.SwingConstants.BOTTOM);
+        tbBookMode.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                tbBookModeActionPerformed(evt);
+            }
+        });
+        jToolBar2.add(tbBookMode);
+
+        tbFullscreen.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/fullscreen.png"))); // NOI18N
+        tbFullscreen.setToolTipText(bundle.getString("Main.tbFullscreen.tooltip")); // NOI18N
+        tbFullscreen.setFocusable(false);
+        tbFullscreen.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
+        tbFullscreen.setVerticalTextPosition(javax.swing.SwingConstants.BOTTOM);
+        tbFullscreen.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                tbFullscreenActionPerformed(evt);
+            }
+        });
+        jToolBar2.add(tbFullscreen);
 
         btnZoomOut.setBackground(new java.awt.Color(51, 51, 51));
         btnZoomOut.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnZoomOut.setIcon(new javax.swing.ImageIcon(getClass().getResource("/zoomOut20.png"))); // NOI18N
+        btnZoomOut.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/zoomOut.png"))); // NOI18N
         btnZoomOut.setToolTipText(bundle.getString("Main.btnZoomOut.tooltip")); // NOI18N
         btnZoomOut.setFocusable(false);
         btnZoomOut.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -823,11 +1111,11 @@ public class Main extends javax.swing.JFrame {
                 btnZoomOutActionPerformed(evt);
             }
         });
-        jToolBar3.add(btnZoomOut);
+        jToolBar2.add(btnZoomOut);
 
         btnZoomIn.setBackground(new java.awt.Color(51, 51, 51));
         btnZoomIn.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
-        btnZoomIn.setIcon(new javax.swing.ImageIcon(getClass().getResource("/zoomIn20.png"))); // NOI18N
+        btnZoomIn.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/zoomIn.png"))); // NOI18N
         btnZoomIn.setToolTipText(bundle.getString("Main.btnZoomIn.tooltip")); // NOI18N
         btnZoomIn.setFocusable(false);
         btnZoomIn.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -837,13 +1125,7 @@ public class Main extends javax.swing.JFrame {
                 btnZoomInActionPerformed(evt);
             }
         });
-        jToolBar3.add(btnZoomIn);
-
-        gridBagConstraints = new java.awt.GridBagConstraints();
-        gridBagConstraints.gridx = 1;
-        gridBagConstraints.gridy = 0;
-        gridBagConstraints.weightx = 1.0;
-        toolbarPanel.add(jToolBar3, gridBagConstraints);
+        jToolBar2.add(btnZoomIn);
 
         jToolBar1.setBackground(new java.awt.Color(51, 51, 51));
         jToolBar1.setBorder(null);
@@ -854,7 +1136,7 @@ public class Main extends javax.swing.JFrame {
         jToolBar1.setMinimumSize(new java.awt.Dimension(505, 25));
 
         btnFirstPage.setBackground(new java.awt.Color(51, 51, 51));
-        btnFirstPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/firstPage20.png"))); // NOI18N
+        btnFirstPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/firstPage.png"))); // NOI18N
         btnFirstPage.setToolTipText(bundle.getString("Main.btnFirstPage.tooltip")); // NOI18N
         btnFirstPage.setFocusable(false);
         btnFirstPage.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -867,7 +1149,7 @@ public class Main extends javax.swing.JFrame {
         jToolBar1.add(btnFirstPage);
 
         btnPreviousPage.setBackground(new java.awt.Color(51, 51, 51));
-        btnPreviousPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/previousPage20.png"))); // NOI18N
+        btnPreviousPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/previousPage.png"))); // NOI18N
         btnPreviousPage.setToolTipText(bundle.getString("Main.btnPreviousPage.tooltip")); // NOI18N
         btnPreviousPage.setFocusable(false);
         btnPreviousPage.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -905,7 +1187,7 @@ public class Main extends javax.swing.JFrame {
         jToolBar1.add(lblLastPage);
 
         btnNextPage.setBackground(new java.awt.Color(51, 51, 51));
-        btnNextPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/nextPage20.png"))); // NOI18N
+        btnNextPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/nextPage.png"))); // NOI18N
         btnNextPage.setToolTipText(bundle.getString("Main.btnNextPage.tooltip")); // NOI18N
         btnNextPage.setFocusable(false);
         btnNextPage.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -918,7 +1200,7 @@ public class Main extends javax.swing.JFrame {
         jToolBar1.add(btnNextPage);
 
         btnLastPage.setBackground(new java.awt.Color(51, 51, 51));
-        btnLastPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/lastPage20.png"))); // NOI18N
+        btnLastPage.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/lastPage.png"))); // NOI18N
         btnLastPage.setToolTipText(bundle.getString("Main.btnLastPage.tooltip")); // NOI18N
         btnLastPage.setFocusable(false);
         btnLastPage.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -930,21 +1212,15 @@ public class Main extends javax.swing.JFrame {
         });
         jToolBar1.add(btnLastPage);
 
-        gridBagConstraints = new java.awt.GridBagConstraints();
-        gridBagConstraints.gridx = 2;
-        gridBagConstraints.gridy = 0;
-        gridBagConstraints.anchor = java.awt.GridBagConstraints.WEST;
-        gridBagConstraints.weightx = 1.0;
-        toolbarPanel.add(jToolBar1, gridBagConstraints);
-
         jToolBar4.setBackground(new java.awt.Color(51, 51, 51));
         jToolBar4.setBorder(null);
         jToolBar4.setFloatable(false);
         jToolBar4.setRollover(true);
+        jToolBar4.setAlignmentY(0.5F);
         jToolBar4.setBorderPainted(false);
 
         btnInfo.setBackground(new java.awt.Color(51, 51, 51));
-        btnInfo.setIcon(new javax.swing.ImageIcon(getClass().getResource("/info20.png"))); // NOI18N
+        btnInfo.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/info.png"))); // NOI18N
         btnInfo.setToolTipText(bundle.getString("Main.btnInfo.tooltip")); // NOI18N
         btnInfo.setFocusable(false);
         btnInfo.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -956,20 +1232,47 @@ public class Main extends javax.swing.JFrame {
         });
         jToolBar4.add(btnInfo);
 
-        gridBagConstraints = new java.awt.GridBagConstraints();
-        gridBagConstraints.gridx = 3;
-        gridBagConstraints.gridy = 0;
-        gridBagConstraints.anchor = java.awt.GridBagConstraints.EAST;
-        toolbarPanel.add(jToolBar4, gridBagConstraints);
+        javax.swing.GroupLayout toolbarPanelLayout = new javax.swing.GroupLayout(toolbarPanel);
+        toolbarPanel.setLayout(toolbarPanelLayout);
+        toolbarPanelLayout.setHorizontalGroup(
+            toolbarPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(toolbarPanelLayout.createSequentialGroup()
+                .addContainerGap()
+                .addComponent(jToolBar2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addComponent(jToolBar1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addComponent(jToolBar4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+        );
+        toolbarPanelLayout.setVerticalGroup(
+            toolbarPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(toolbarPanelLayout.createSequentialGroup()
+                .addGap(0, 0, 0)
+                .addGroup(toolbarPanelLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                    .addComponent(jToolBar1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jToolBar4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jToolBar2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addGap(0, 0, 0))
+        );
 
+        scrollPanePage.setBackground(new java.awt.Color(51, 51, 51));
         scrollPanePage.setBorder(null);
+        scrollPanePage.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                scrollPanePageMouseClicked(evt);
+            }
+        });
         scrollPanePage.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyPressed(java.awt.event.KeyEvent evt) {
+                scrollPanePageKeyPressed(evt);
+            }
             public void keyReleased(java.awt.event.KeyEvent evt) {
                 scrollPanePageKeyReleased(evt);
             }
         });
 
         panel.setBackground(new java.awt.Color(51, 51, 51));
+        panel.setForeground(new java.awt.Color(51, 51, 51));
         panel.addKeyListener(new java.awt.event.KeyAdapter() {
             public void keyReleased(java.awt.event.KeyEvent evt) {
                 panelKeyReleased(evt);
@@ -980,6 +1283,7 @@ public class Main extends javax.swing.JFrame {
 
         jTabbedPane1.setBackground(new java.awt.Color(51, 51, 51));
         jTabbedPane1.setForeground(new java.awt.Color(240, 240, 240));
+        jTabbedPane1.setPreferredSize(new java.awt.Dimension(180, 556));
 
         scrollPaneMiniatures.setBorder(null);
         scrollPaneMiniatures.setVerticalScrollBarPolicy(javax.swing.ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
@@ -1000,7 +1304,7 @@ public class Main extends javax.swing.JFrame {
 
         scrollPaneMiniatures.setViewportView(panelMiniatures);
 
-        jTabbedPane1.addTab("tab1", scrollPaneMiniatures);
+        jTabbedPane1.addTab(bundle.getString("PDFReader.scrollPaneMiniatures.TabConstraints.tabTitle"), scrollPaneMiniatures); // NOI18N
 
         jTree1.setBackground(new java.awt.Color(51, 51, 51));
         jTree1.setForeground(new java.awt.Color(255, 255, 255));
@@ -1008,168 +1312,42 @@ public class Main extends javax.swing.JFrame {
         jTree1.setRootVisible(false);
         jScrollPane1.setViewportView(jTree1);
 
-        jTabbedPane1.addTab(bundle.getString("Main.jScrollPane1.TabConstraints.tabTitle"), jScrollPane1); // NOI18N
+        jTabbedPane1.addTab(bundle.getString("PDFReader.jScrollPane1.TabConstraints.tabTitle"), jScrollPane1); // NOI18N
 
-        javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
-        jPanel1.setLayout(jPanel1Layout);
-        jPanel1Layout.setHorizontalGroup(
-            jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel1Layout.createSequentialGroup()
+        javax.swing.GroupLayout panelBackgroundLayout = new javax.swing.GroupLayout(panelBackground);
+        panelBackground.setLayout(panelBackgroundLayout);
+        panelBackgroundLayout.setHorizontalGroup(
+            panelBackgroundLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(panelBackgroundLayout.createSequentialGroup()
                 .addComponent(jTabbedPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 180, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addGap(0, 0, 0)
                 .addComponent(scrollPanePage))
-            .addComponent(toolbarPanel, javax.swing.GroupLayout.DEFAULT_SIZE, 845, Short.MAX_VALUE)
+            .addComponent(toolbarPanel, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
         );
-        jPanel1Layout.setVerticalGroup(
-            jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel1Layout.createSequentialGroup()
+        panelBackgroundLayout.setVerticalGroup(
+            panelBackgroundLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(panelBackgroundLayout.createSequentialGroup()
                 .addComponent(toolbarPanel, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(scrollPanePage, javax.swing.GroupLayout.DEFAULT_SIZE, 524, Short.MAX_VALUE)
+                .addGroup(panelBackgroundLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addComponent(scrollPanePage, javax.swing.GroupLayout.DEFAULT_SIZE, 370, Short.MAX_VALUE)
                     .addComponent(jTabbedPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)))
         );
 
-        jTabbedPane1.getAccessibleContext().setAccessibleName(bundle.getString("Main.tab2.text")); // NOI18N
-
-        javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
-        getContentPane().setLayout(layout);
-        layout.setHorizontalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-        );
-        layout.setVerticalGroup(
-            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addComponent(jPanel1, javax.swing.GroupLayout.Alignment.TRAILING, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-        );
-
-        pack();
-        setLocationRelativeTo(null);
+        add(panelBackground, java.awt.BorderLayout.CENTER);
     }// </editor-fold>//GEN-END:initComponents
 
-    private void btnZoomInActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnZoomInActionPerformed
-        if (hasLoadedDocument) {
-            zoomIn();
-        }
-    }//GEN-LAST:event_btnZoomInActionPerformed
+    private void btnOpenActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnOpenActionPerformed
+        openDocument();
+    }//GEN-LAST:event_btnOpenActionPerformed
 
-    private void btnZoomOutActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnZoomOutActionPerformed
-        if (hasLoadedDocument) {
-            zoomOut();
-        }
-    }//GEN-LAST:event_btnZoomOutActionPerformed
+    private void btnPrintActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnPrintActionPerformed
+        printDocument();
+    }//GEN-LAST:event_btnPrintActionPerformed
 
     private void tbTogglePanelActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_tbTogglePanelActionPerformed
 
         TogglePanel();
     }//GEN-LAST:event_tbTogglePanelActionPerformed
-
-    private void tbBookModeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_tbBookModeActionPerformed
-        if (hasLoadedDocument) {
-            if (document.getNumberOfPages() > 1) {
-                BookMode();
-            } else {
-                tbBookMode.setSelected(false);
-            }
-        }
-    }//GEN-LAST:event_tbBookModeActionPerformed
-
-    private void btnLastPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLastPageActionPerformed
-        if (hasLoadedDocument) {
-            if (BookMode == false) {
-                loadPage(document.getNumberOfPages() - 1);
-            } else {
-                if ((document.getNumberOfPages() - 1) % 2 == 0) {
-                    //if last page is even
-                    loadPage(document.getNumberOfPages() - 1, -1);
-                } else {
-                    // if last page is odd
-                    loadPage(document.getNumberOfPages() - 2, document.getNumberOfPages() - 1);
-                }
-            }
-            updateMiniaturesVerticalScrollBar();
-        }
-    }//GEN-LAST:event_btnLastPageActionPerformed
-
-    private void btnNextPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnNextPageActionPerformed
-        nextPage();
-    }//GEN-LAST:event_btnNextPageActionPerformed
-
-    private void btnPreviousPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnPreviousPageActionPerformed
-        if (hasLoadedDocument) {
-            if (BookMode == false) {
-                if (currentPage - 2 >= 0) {
-                    loadPage(currentPage - 2);
-                }
-            } else {
-                if (currentPage == 2) {
-                    //  show first page on right side
-                    loadPage(-1, currentPage - 2);
-                } else if (currentPage % 2 != 0) {
-                    if (currentPage > 2) {
-                        loadPage(currentPage - 3, currentPage - 2);
-                    } else {
-                        loadPage(currentPage - 4, currentPage - 3);
-                    }
-                } else {
-                    if (currentPage > 2) {
-                        loadPage(currentPage - 3, currentPage - 2);
-                    } else {
-                        loadPage(currentPage - 4, currentPage - 3);
-                    }
-                }
-            }
-        }
-    }//GEN-LAST:event_btnPreviousPageActionPerformed
-
-    private void btnFirstPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnFirstPageActionPerformed
-        if (hasLoadedDocument) {
-            if (BookMode == false) {
-                loadPage(0);
-            } else {
-                loadPage(0, 1);
-            }
-        }
-    }//GEN-LAST:event_btnFirstPageActionPerformed
-
-    private void btnPrintActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnPrintActionPerformed
-        if (hasLoadedDocument) {
-            PrinterJob job = PrinterJob.getPrinterJob();
-
-            job.setPageable(new PDFPageable(document));
-
-            if (job.printDialog()) {
-                try {
-                    job.print();
-                } catch (PrinterException ex) {
-                    Logger.getLogger(Main.class.getName()).log(Level.SEVERE, "Print error: ", ex);
-                }
-            }
-        }
-    }//GEN-LAST:event_btnPrintActionPerformed
-
-    private void btnOpenActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnOpenActionPerformed
-        final JFileChooser openFile = new JFileChooser();
-        openFile.setMultiSelectionEnabled(false);
-        //        saveAs.setApproveButtonText(LanguageClass.translation[29]);
-        //        saveAs.setApproveButtonToolTipText(LanguageClass.translation[29]);
-        int actionDialog = openFile.showOpenDialog(this);
-        if (actionDialog == JFileChooser.APPROVE_OPTION) {
-            String alfa = openFile.getSelectedFile().getAbsolutePath();
-            Main.this.setTitle("Tantan reader - " + openFile.getSelectedFile().getName());
-            if (alfa.endsWith(".pdf")) {
-                if (hasLoadedDocument) {
-                    try {
-                        document.close();
-                    } catch (IOException ex) {
-                        logger.log(Level.WARNING, "Error closing document: " + ex.toString(), ex);
-                    }
-                }
-                loadPDF(alfa);
-            } else {
-                //                JOptionPane.showMessageDialog(null, LanguageClass.translation[30]);
-            }
-        }
-    }//GEN-LAST:event_btnOpenActionPerformed
 
     private void tbNightModeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_tbNightModeActionPerformed
         if (hasLoadedDocument) {
@@ -1182,6 +1360,36 @@ public class Main extends javax.swing.JFrame {
             setMiniatures(currentPage);
         }
     }//GEN-LAST:event_tbNightModeActionPerformed
+
+    private void tbBookModeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_tbBookModeActionPerformed
+        if (hasLoadedDocument) {
+            if (documentSize > 1) {
+                BookMode();
+            } else {
+                tbBookMode.setSelected(false);
+            }
+        }
+    }//GEN-LAST:event_tbBookModeActionPerformed
+
+    private void btnZoomOutActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnZoomOutActionPerformed
+        if (hasLoadedDocument) {
+            zoomOut();
+        }
+    }//GEN-LAST:event_btnZoomOutActionPerformed
+
+    private void btnZoomInActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnZoomInActionPerformed
+        if (hasLoadedDocument) {
+            zoomIn();
+        }
+    }//GEN-LAST:event_btnZoomInActionPerformed
+
+    private void btnFirstPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnFirstPageActionPerformed
+        firstPage();
+    }//GEN-LAST:event_btnFirstPageActionPerformed
+
+    private void btnPreviousPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnPreviousPageActionPerformed
+        previousPage();
+    }//GEN-LAST:event_btnPreviousPageActionPerformed
 
     private void txtPageKeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtPageKeyReleased
         if (hasLoadedDocument) {
@@ -1206,8 +1414,16 @@ public class Main extends javax.swing.JFrame {
         }
     }//GEN-LAST:event_txtPageKeyReleased
 
+    private void btnNextPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnNextPageActionPerformed
+        nextPage();
+    }//GEN-LAST:event_btnNextPageActionPerformed
+
+    private void btnLastPageActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnLastPageActionPerformed
+        lastPage();
+    }//GEN-LAST:event_btnLastPageActionPerformed
+
     private void btnInfoActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btnInfoActionPerformed
-        InformationFrame info = new InformationFrame();
+        InfoFrame info = new InfoFrame();
         info.setVisible(true);
     }//GEN-LAST:event_btnInfoActionPerformed
 
@@ -1215,63 +1431,95 @@ public class Main extends javax.swing.JFrame {
 
     }//GEN-LAST:event_panelKeyReleased
 
+    private void scrollPanePageMouseClicked(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_scrollPanePageMouseClicked
+        scrollPanePage.requestFocus();
+    }//GEN-LAST:event_scrollPanePageMouseClicked
+
+    private void scrollPanePageKeyPressed(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_scrollPanePageKeyPressed
+
+        switch (evt.getKeyCode()) {
+            case 17:
+                // ctrl
+                isCtrlPressed = true;
+                break;
+            case 80:
+                // P
+                if (isCtrlPressed) {
+                    printDocument();
+                }
+                break;
+            case 79:
+                // o
+                if (isCtrlPressed) {
+                    openDocument();
+                }
+                break;
+            default:
+                isCtrlPressed = false;
+                break;
+        }
+    }//GEN-LAST:event_scrollPanePageKeyPressed
+
     private void scrollPanePageKeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_scrollPanePageKeyReleased
-        if (hasLoadedDocument) {
-            if (evt.getKeyCode() == 40) {
+
+        switch (evt.getKeyCode()) {
+            case 38:
+                // up
+                if (scrollPanePage.getVerticalScrollBar().getValue() == 0) {
+                    previousPage();
+                }
+                break;
+            case 40:
+                // down
                 int maxValue = scrollPanePage.getVerticalScrollBar().getMaximum();
                 int value = scrollPanePage.getVerticalScrollBar().getValue();
                 int extentValue = scrollPanePage.getVerticalScrollBar().getModel().getExtent();
                 if (value + extentValue >= maxValue) {
                     nextPage();
                 }
-            }
-            System.out.println(evt.getKeyCode());
+                break;
+            case 99:
+                // page down
+                nextPage();
+                break;
+            case 105:
+                // page up
+                previousPage();
+                break;
+            case 103:
+                // home
+                firstPage();
+                break;
+            case 97:
+                // end
+                lastPage();
+                break;
+
         }
     }//GEN-LAST:event_scrollPanePageKeyReleased
 
-    /**
-     * @param args the command line arguments
-     */
-    public static void main(String args[]) {
-        /* Set the Nimbus look and feel */
-        //<editor-fold defaultstate="collapsed" desc=" Look and feel setting code (optional) ">
-        /* If Nimbus (introduced in Java SE 6) is not available, stay with the default look and feel.
-         * For details see http://download.oracle.com/javase/tutorial/uiswing/lookandfeel/plaf.html 
-         */
-        try {
-            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
-                if ("Nimbus".equals(info.getName())) {
-                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
-                    break;
-                }
+    private void tbFullscreenActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_tbFullscreenActionPerformed
+        if (tbFullscreen.isSelected()) {
+            Object o = SwingUtilities.windowForComponent(this);
+            if (o != null && o instanceof JFrame) {
+                JFrame frame = (JFrame) o;
+                frame.dispose();
+                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                frame.setUndecorated(true);
+                frame.setVisible(true);
             }
-        } catch (ClassNotFoundException ex) {
-            java.util.logging.Logger.getLogger(Main.class
-                    .getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (InstantiationException ex) {
-            java.util.logging.Logger.getLogger(Main.class
-                    .getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (IllegalAccessException ex) {
-            java.util.logging.Logger.getLogger(Main.class
-                    .getName()).log(java.util.logging.Level.SEVERE, null, ex);
-        } catch (javax.swing.UnsupportedLookAndFeelException ex) {
-            java.util.logging.Logger.getLogger(Main.class
-                    .getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        } else {
+            Object o = SwingUtilities.windowForComponent(this);
+            if (o != null && o instanceof JFrame) {
+                JFrame frame = (JFrame) o;
+                frame.dispose();
+                frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                frame.setUndecorated(false);
+                frame.setVisible(true);
+            }
         }
-        //</editor-fold>
+    }//GEN-LAST:event_tbFullscreenActionPerformed
 
-        /* Create and display the form */
-        java.awt.EventQueue.invokeLater(new Runnable() {
-            public void run() {
-                try {
-                    new Main(args).setVisible(true);
-                } catch (IOException ex) {
-                    Logger.getLogger(Main.class
-                            .getName()).log(Level.SEVERE, null, ex);
-                }
-            }
-        });
-    }
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btnFirstPage;
@@ -1283,21 +1531,21 @@ public class Main extends javax.swing.JFrame {
     private javax.swing.JButton btnPrint;
     private javax.swing.JButton btnZoomIn;
     private javax.swing.JButton btnZoomOut;
-    private javax.swing.JPanel jPanel1;
     private javax.swing.JScrollPane jScrollPane1;
     private javax.swing.JTabbedPane jTabbedPane1;
     private javax.swing.JToolBar jToolBar1;
     private javax.swing.JToolBar jToolBar2;
-    private javax.swing.JToolBar jToolBar3;
     private javax.swing.JToolBar jToolBar4;
     private javax.swing.JTree jTree1;
     private javax.swing.JLabel lblLastPage;
     private javax.swing.JLabel lblPageSeparator;
     private javax.swing.JPanel panel;
+    private javax.swing.JPanel panelBackground;
     private javax.swing.JPanel panelMiniatures;
     private javax.swing.JScrollPane scrollPaneMiniatures;
     private javax.swing.JScrollPane scrollPanePage;
     private javax.swing.JToggleButton tbBookMode;
+    private javax.swing.JToggleButton tbFullscreen;
     private javax.swing.JToggleButton tbNightMode;
     private javax.swing.JToggleButton tbTogglePanel;
     private javax.swing.JPanel toolbarPanel;

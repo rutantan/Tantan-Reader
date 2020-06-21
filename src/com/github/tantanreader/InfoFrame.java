@@ -3,35 +3,20 @@
  * To change this template file, choose Tools | Templates
  * and open the template in the editor.
  */
-package rutantan.tantanreader;
-
-import com.formdev.flatlaf.FlatIntelliJLaf;
-import com.formdev.flatlaf.FlatLightLaf;
-import java.util.logging.Level;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
-import static rutantan.tantanreader.Main.logger;
+package com.github.tantanreader;
 
 /**
  *
  * @author cesar
  */
-public class InformationFrame extends javax.swing.JFrame {
+public class InfoFrame extends javax.swing.JFrame {
 
     /**
      * Creates new form InformationFrame
      */
-    public InformationFrame() {
+    public InfoFrame() {
         initComponents();
         
-        FlatIntelliJLaf.install();
-        try {
-            UIManager.setLookAndFeel(new FlatLightLaf());
-            SwingUtilities.updateComponentTreeUI(InformationFrame.this);
-            InformationFrame.this.pack();
-        } catch (Exception ex) {
-            logger.log(Level.WARNING, "Failed to initialize LaF");
-        }
        
     }
 
@@ -66,8 +51,7 @@ public class InformationFrame extends javax.swing.JFrame {
         jPanel2.setBackground(new java.awt.Color(51, 51, 51));
 
         jLabel2.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
-        jLabel2.setIcon(new javax.swing.ImageIcon(getClass().getResource("/icon.png"))); // NOI18N
-        jLabel2.setPreferredSize(new java.awt.Dimension(100, 100));
+        jLabel2.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/icon.png"))); // NOI18N
 
         jLabel3.setBackground(new java.awt.Color(51, 51, 51));
         jLabel3.setFont(new java.awt.Font("Tahoma", 0, 20)); // NOI18N
@@ -79,7 +63,8 @@ public class InformationFrame extends javax.swing.JFrame {
         jLabel8.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
         jLabel8.setForeground(new java.awt.Color(204, 204, 204));
         jLabel8.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
-        jLabel8.setText("Open source Java PDF Reader ");
+        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("com/github/tantanreader/bundles/Bundle"); // NOI18N
+        jLabel8.setText(bundle.getString("InfoFrame.jLabel8.text")); // NOI18N
 
         jPanel3.setBackground(new java.awt.Color(51, 51, 51));
         jPanel3.setLayout(new java.awt.GridBagLayout());
@@ -88,7 +73,6 @@ public class InformationFrame extends javax.swing.JFrame {
         lblVersion.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
         lblVersion.setForeground(new java.awt.Color(204, 204, 204));
         lblVersion.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
-        java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("rutantan/tantanreader/Bundle"); // NOI18N
         lblVersion.setText(bundle.getString("Information.lblVersion")); // NOI18N
         gridBagConstraints = new java.awt.GridBagConstraints();
         gridBagConstraints.gridx = 0;
@@ -103,7 +87,7 @@ public class InformationFrame extends javax.swing.JFrame {
         lblVersion1.setFont(new java.awt.Font("Tahoma", 0, 14)); // NOI18N
         lblVersion1.setForeground(new java.awt.Color(204, 204, 204));
         lblVersion1.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
-        lblVersion1.setText("0.2");
+        lblVersion1.setText(bundle.getString("InfoFrame.lblVersion1.text")); // NOI18N
         gridBagConstraints = new java.awt.GridBagConstraints();
         gridBagConstraints.gridx = 1;
         gridBagConstraints.gridy = 0;
@@ -210,7 +194,7 @@ public class InformationFrame extends javax.swing.JFrame {
         jPanel1.add(jLabel1, gridBagConstraints);
 
         jButton1.setBackground(new java.awt.Color(204, 204, 204));
-        jButton1.setIcon(new javax.swing.ImageIcon(getClass().getResource("/close20.png"))); // NOI18N
+        jButton1.setIcon(new javax.swing.ImageIcon(getClass().getResource("/com/github/tantanreader/icons/close.png"))); // NOI18N
         jButton1.setToolTipText(bundle.getString("Main.btnClose.tooltip")); // NOI18N
         jButton1.setFocusable(false);
         jButton1.setHorizontalTextPosition(javax.swing.SwingConstants.CENTER);
@@ -249,7 +233,7 @@ public class InformationFrame extends javax.swing.JFrame {
     }// </editor-fold>//GEN-END:initComponents
 
     private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
-        InformationFrame.this.dispose();
+        InfoFrame.this.dispose();
     }//GEN-LAST:event_jButton1ActionPerformed
 
     /**
@@ -269,20 +253,23 @@ public class InformationFrame extends javax.swing.JFrame {
                 }
             }
         } catch (ClassNotFoundException ex) {
-            java.util.logging.Logger.getLogger(InformationFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+            java.util.logging.Logger.getLogger(InfoFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
         } catch (InstantiationException ex) {
-            java.util.logging.Logger.getLogger(InformationFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+            java.util.logging.Logger.getLogger(InfoFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
         } catch (IllegalAccessException ex) {
-            java.util.logging.Logger.getLogger(InformationFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+            java.util.logging.Logger.getLogger(InfoFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
         } catch (javax.swing.UnsupportedLookAndFeelException ex) {
-            java.util.logging.Logger.getLogger(InformationFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+            java.util.logging.Logger.getLogger(InfoFrame.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
         }
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
         //</editor-fold>
 
         /* Create and display the form */
         java.awt.EventQueue.invokeLater(new Runnable() {
             public void run() {
-                new InformationFrame().setVisible(true);
+                new InfoFrame().setVisible(true);
             }
         });
     }
