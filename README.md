@@ -1,12 +1,11 @@
 # Tantan-Reader
-Open Source Java PDF Reader
+Open Source Java Reader
+It can open PDF, CBR, ZIP files
 
-It uses Apache PDFBox to render PDF file.
+It uses Apache PDFBox to render PDF file and convert it to an image for reading.
 
 ## Download
 [Here](https://github.com/rutantan/Tantan-Reader/releases)
-
-Prerequisites: [Java](https://www.java.com/download/)
 
 ## Author
 
@@ -19,7 +18,7 @@ This project is licensed under Apache 2.0 License - see the [LICENSE.md](LICENSE
 ## Built with
 
 * Netbeans 11
-* JDK 14
+* Open JDK 14
 
 ## Libraries used:
 
